@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+
+android {
+    namespace 'tv.lumen.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'tv.lumen.app'
+        minSdk 22
+        targetSdk 34
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    signingConfigs {
+        lumen {
+            storeFile file('lumen.keystore')
+            storePassword 'lumentv'
+            keyAlias 'lumen'
+            keyPassword 'lumentv'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.lumen
+        }
+        debug {
+            signingConfig signingConfigs.lumen
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // Keeps Kotlin library versions consistent (avoids "duplicate class" build errors).
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    // Android's own media player (plays Dolby Digital audio, HLS and MPEG-TS streams).
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
+}

@@ -1,0 +1,60 @@
+# Builds the Lumen TV app (APK) for Fire TV / Android every time you upload changes.
+# The finished file appears under "Releases" on your GitHub page.
+name: Build Lumen TV app
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Bundle the video players into the app
+        run: |
+          mkdir -p app/src/main/assets/lib
+          curl -fsSL --retry 3 https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o app/src/main/assets/lib/hls.min.js || echo "hls.js will load from the internet instead"
+          curl -fsSL --retry 3 https://cdn.jsdelivr.net/npm/mpegts.js@1/dist/mpegts.js -o app/src/main/assets/lib/mpegts.js || echo "mpegts.js will load from the internet instead"
+          ls -la app/src/main/assets app/src/main/assets/lib
+
+      - name: Build the app
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Name the file
+        run: cp app/build/outputs/apk/release/app-release.apk LumenTV.apk
+
+      - name: Keep a copy with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumenTV-apk
+          path: LumenTV.apk
+
+      - name: Publish the download link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Lumen TV (build ${{ github.run_number }})
+          make_latest: true
+          files: LumenTV.apk
+          body: |
+            Lumen TV for Fire TV and Android.
+
+            Download link for the Downloader app (always the newest build):
+            https://github.com/${{ github.repository }}/releases/latest/download/LumenTV.apk
