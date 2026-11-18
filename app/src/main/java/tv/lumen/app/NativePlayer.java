@@ -4,7 +4,9 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
+import android.widget.FrameLayout;
 
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -260,6 +262,23 @@ public class NativePlayer {
 
     public void setVolume(float volume) {
         if (player != null) player.setVolume(volume);
+    }
+
+    /**
+     * Places the video on screen, in real pixels. A negative width means full screen.
+     * Used to show the video inside the small preview boxes of the Lumen interface.
+     */
+    public void layout(int x, int y, int w, int h) {
+        FrameLayout.LayoutParams lp;
+        if (w < 0 || h < 0) {
+            lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        } else {
+            lp = new FrameLayout.LayoutParams(Math.max(1, w), Math.max(1, h));
+            lp.leftMargin = x;
+            lp.topMargin = y;
+        }
+        lp.gravity = Gravity.TOP | Gravity.START;
+        view.setLayoutParams(lp);
     }
 
     public void setFit(String mode) {

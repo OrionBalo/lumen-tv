@@ -3,6 +3,8 @@ plugins {
 }
 
 def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+// Always goes up (minutes since 2026), so every new build installs over the old one.
+def buildCode = (int) ((System.currentTimeMillis().intdiv(1000L) - 1767225600L).intdiv(60L))
 
 android {
     namespace 'tv.lumen.app'
@@ -12,8 +14,8 @@ android {
         applicationId 'tv.lumen.app'
         minSdk 22
         targetSdk 34
-        versionCode runNumber
-        versionName "1.0.${runNumber}"
+        versionCode buildCode
+        versionName "1.1.${runNumber}"
     }
 
     signingConfigs {

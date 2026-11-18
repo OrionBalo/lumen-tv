@@ -457,11 +457,17 @@ body.kbd .ob-seek:focus .ob-bar{height:8px}
 .numbox.on{display:block}
 .numbox small{display:block;font-size:.8rem;color:var(--dim);letter-spacing:0;text-align:center}
 
-/* native Android player shows through the page in full screen */
-html.native-full,html.native-full body{background:transparent!important}
-html.native-full #app,html.native-full #stageBack,html.native-full #amb{visibility:hidden}
-html.native-full #stage{background:transparent!important}
-html.native-full #stage video{visibility:hidden}
+/* native Android player sits behind the page and shows through it */
+html.native-on,html.native-on body{background:transparent!important}
+html.native-on #stage{background:transparent!important}
+html.native-on #stage video,html.native-on #amb{visibility:hidden}
+html.native-on .hero::before{display:none}
+html.native-slot .slot.ntarget{background:transparent}
+html.native-slot .slot.ntarget .ph{visibility:hidden}
+html.native-slot .slot.ntarget::after{content:'';position:absolute;inset:0;border-radius:var(--r);box-shadow:0 0 0 40px var(--bg);pointer-events:none}
+html.native-full #app,html.native-full #stageBack{visibility:hidden}
+/* the movie / series page steps aside while its video plays full screen */
+html.full-on #layers > .detail{visibility:hidden}
 
 /* ---------- multi-view ---------- */
 #v-multi{background:#000}
@@ -518,6 +524,8 @@ body.kbd .tile:focus::after{box-shadow:inset 0 0 0 4px var(--accent)}
 /* ---------- reduced effects for TV sticks ---------- */
 body.lite .rail.open,body.lite .mcard,body.lite .sheet,body.lite .toast{box-shadow:none}
 body.lite .ccard,body.lite .pcard .pst,body.lite .btn{transition:none}
+body.lite .rail,body.lite .rail *,body.lite #layers > *,body.lite .mcard,body.lite .sheet,body.lite .side{transition:none!important}
+body.lite .hero::before{display:none}
 body.lite .eq i{animation:none;height:70%}
 
 /* ---------- phones & small screens ---------- */
@@ -913,7 +921,7 @@ const Nav = {
 };
 function isVisible(el) {
   if (!el || !el.isConnected || !el.getClientRects().length) return false;
-  const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== 'hidden';
+  const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1;
 }
 function focusEl(el, noScroll) {
   if (!el) return false;
@@ -923,7 +931,8 @@ function focusEl(el, noScroll) {
 }
 function spatial(dir, from) {
   const scope = Nav.scope(); const cur = from || document.activeElement;
-  const cands = $$(FOCUSABLE, scope).filter(e => e !== cur && !e.closest('[data-nonav]') && isVisible(e));
+  const roots = Nav.top() || !View.cur ? [scope] : [View.cur.el, $('#rail')];
+  const cands = []; for (const root of roots) for (const e of root.querySelectorAll(FOCUSABLE)) if (e !== cur && !e.closest('[data-nonav]') && isVisible(e)) cands.push(e);
   if (!cur || cur === document.body || !scope.contains(cur)) { return focusEl(scope.querySelector('[data-entry]') || cands[0]); }
   const r = cur.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   let best = null, bs = Infinity;
@@ -1173,7 +1182,7 @@ class VScroll {
    Lumen TV — data: playlists, Xtream Codes, EPG, catch-up
    ========================================================= */
 const D = {
-  pl: null, channels: [], byKey: new Map(), byNum: new Map(), byGroup: new Map(), groups: [],
+  ver: 0, pl: null, channels: [], byKey: new Map(), byNum: new Map(), byGroup: new Map(), groups: [],
   movies: null, series: null, mcats: [], scats: [], epgUrls: [], info: null,
   epgRaw: null, chEpg: new Map(), epgState: { busy: false, msg: '', at: 0, count: 0, matched: 0 },
 };
@@ -1533,7 +1542,7 @@ function applyData(pl, data) {
   }
   const order = data.groupOrder ? data.groupOrder.filter(g => D.byGroup.has(g)) : [];
   for (const g of D.byGroup.keys()) if (!order.includes(g)) order.push(g);
-  D.groups = order;
+  D.groups = order; D.ver++;
   D.movies = pl.type === 'xtream' ? null : (data.movies || []);
   D.series = pl.type === 'xtream' ? null : (data.series || []);
   if (pl.type !== 'xtream') {
@@ -1576,7 +1585,7 @@ async function loadPlaylist(pl, { force } = {}) {
 function epgSources(pl) { return [...new Set([...(pl.epgAuto === false ? [] : D.epgUrls), ...(pl.epg || [])])].filter(Boolean); }
 function maxArchive() { let m = 0; for (const ch of D.channels) m = Math.max(m, archiveDays(ch)); return Math.min(m, 7); }
 function linkEPG() {
-  D.chEpg = new Map(); const raw = D.epgRaw; if (!raw || !D.pl) return;
+  D.chEpg = new Map(); D.ver++; const raw = D.epgRaw; if (!raw || !D.pl) return;
   const ids = raw.data, byLower = new Map(), byName = new Map();
   for (const id in ids) byLower.set(id.toLowerCase(), id);
   for (const id in raw.chans) for (const nm of raw.chans[id].names || []) { const k = normName(nm); if (k && !byName.has(k)) byName.set(k, id); }
@@ -1905,7 +1914,7 @@ const Stage = {
       if (this.v.muted && this.mode === 'full') this.unmute();
     });
     const rp = () => this.queuePlace();
-    addEventListener('resize', rp); document.addEventListener('scroll', rp, true);
+    addEventListener('resize', rp); document.addEventListener('scroll', e => { const t = e.target; if (this.mode === 'slot' && this.slot && (t === document || (t.contains && t.contains(this.slot)))) rp(); }, true);
     if (window.ResizeObserver) this.ro = new ResizeObserver(rp);
     setInterval(() => this.saveResume(), 5000);
   },
@@ -1923,7 +1932,8 @@ const Stage = {
     const el = this.el;
     if (this.mode === 'slot' && this.slot) {
       const r = this.slot.getBoundingClientRect();
-      if (!r.width || !this.slot.isConnected || !isVisible(this.slot)) { el.style.visibility = 'hidden'; return; }
+      if (!r.width || !this.slot.isConnected || !isVisible(this.slot)) { el.style.visibility = 'hidden'; if (this.native) Android.call('nativeLayout', -20000, -20000, 16, 9); return; }
+      if (this.native) { const d = window.devicePixelRatio || 1; Android.call('nativeLayout', Math.round(r.left * d), Math.round(r.top * d), Math.round(r.width * d), Math.round(r.height * d)); }
       const W = innerWidth, s = r.width / W;
       el.style.visibility = ''; el.style.width = W + 'px'; el.style.height = (r.height / s) + 'px';
       el.style.transform = `translate(${r.left}px,${r.top}px) scale(${s})`; el.style.borderRadius = (14 / s) + 'px'; el.style.setProperty('--inv', (1 / s).toFixed(3));
@@ -1931,7 +1941,16 @@ const Stage = {
     } else if (this.mode === 'full') {
       el.style.visibility = ''; el.style.width = innerWidth + 'px'; el.style.height = innerHeight + 'px';
       el.style.transform = 'translate(0,0) scale(1)'; el.style.borderRadius = '0'; el.style.setProperty('--inv', '1'); Amb.place(null);
+      if (this.native) Android.call('nativeLayout', -1, -1, -1, -1);
     }
+    this.syncClasses();
+  },
+  syncClasses() {
+    const de = document.documentElement, n = this.native, m = this.mode;
+    de.classList.toggle('native-on', n); de.classList.toggle('native-full', n && m === 'full'); de.classList.toggle('native-slot', n && m === 'slot');
+    de.classList.toggle('full-on', m === 'full');
+    $$('.slot.ntarget').forEach(x => { if (x !== this.slot || !(n && m === 'slot')) x.classList.remove('ntarget'); });
+    if (n && m === 'slot' && this.slot) this.slot.classList.add('ntarget');
   },
   attach(slot) {
     if (this.slot && this.ro) this.ro.unobserve(this.slot);
@@ -1950,8 +1969,8 @@ const Stage = {
   },
   useNative(on) {
     this.native = !!on; this.eng = on ? this.neng : this.webEng; this.v = on ? this.neng.v : this.webV;
-    document.documentElement.classList.toggle('native-full', !!on);
-    if (on && this.fit !== 'contain') Android.call('nativeSetFit', this.fit);
+    if (on) Android.call('nativeSetFit', this.mode === 'full' ? this.fit : 'contain');
+    this.syncClasses();
   },
   wantNative(src) { return !!this.neng && Native.ok() && !(src && src.urls && this.nativeBad.has(src.urls[0])); },
   goNative(src) { if (this.native || !this.wantNative(src)) return; this.webEng.stop(); this.useNative(true); },
@@ -1959,8 +1978,8 @@ const Stage = {
     const src = this.neng.src; console.warn('[native] failed, using web player:', msg);
     if (src) this.nativeBad.add(src.urls[0]);
     this.neng.stop(); this.useNative(false);
-    if (src && this.mode === 'full') { toast('Switched to the backup player for this stream', { icon: 'info' }); this.eng.play(src); }
-    else if (src) this.status('error', friendlyErr(msg));
+    if (src && this.mode === 'full') toast('Switched to the backup player for this stream', { icon: 'info' });
+    if (src && this.mode !== 'off') { this.eng.play(src); this.place(); }
   },
   ended() {
     if (this.kind === 'vod' && this.item) { delete ST.resume[this.item.key]; saveST(); toast('Finished: ' + this.item.title, { icon: 'check' }); this.exitFull(); }
@@ -1978,7 +1997,7 @@ const Stage = {
     addRecent(ch);
     if (!same) {
       this.errored = false;
-      if (this.mode === 'full' || o.full) { if (this.native && !this.wantNative(this.srcFor(ch))) { this.neng.stop(); this.useNative(false); } else this.goNative(this.srcFor(ch)); }
+      if (this.native && !this.wantNative(this.srcFor(ch))) { this.neng.stop(); this.useNative(false); } else this.goNative(this.srcFor(ch));
       this.zapStart(ch, o.delay || 0);
     }
     const slot = o.full ? null : (o.slot || (View.cur && View.cur.slot && View.cur.slot()));
@@ -2026,6 +2045,7 @@ const Stage = {
       this.webEng.stop(); this.useNative(true); this.errored = false; this.eng.play(this.srcFor(this.ch));
     }
     const from = this.mode; this.mode = 'full';
+    if (this.native) Android.call('nativeSetFit', this.fit);
     this.el.classList.add('on', 'full'); this.el.classList.toggle('amb', ambientOn()); $('#stageBack').classList.add('on');
     this.el.classList.toggle('anim', from === 'slot'); setTimeout(() => this.el.classList.remove('anim'), 400);
     this.place(); this.eng.setMuted(false); $('#mutedTip').classList.remove('on');
@@ -2035,15 +2055,14 @@ const Stage = {
   },
   exitFull() {
     if (this.mode !== 'full') return;
+    document.documentElement.classList.remove('full-on', 'native-full');
     this.saveResume(); OSD.close();
     if (document.fullscreenElement) { try { document.exitFullscreen(); } catch { } }
     if (Env.android && !Env.isTV) Android.call('setOrientation', 'auto');
     this.el.classList.remove('full', 'amb'); $('#stageBack').classList.remove('on');
-    const wasNative = this.native;
-    if (wasNative) { this.neng.stop(); this.useNative(false); }
     if (this.kind !== 'live') { this.stop(); Bus.emit('exitfull'); return; }
     const slot = View.cur && View.cur.slot ? View.cur.slot() : null;
-    if (slot && this.ch && (this.eng.src || wasNative)) { if (wasNative) { this.errored = false; this.eng.play(this.srcFor(this.ch)); } this.attach(slot); } else this.stop();
+    if (slot && this.ch && this.eng.src) { if (this.native) Android.call('nativeSetFit', 'contain'); this.attach(slot); } else this.stop();
     Bus.emit('exitfull');
   },
   stop() {
@@ -2052,6 +2071,7 @@ const Stage = {
     this.el.classList.remove('on', 'full', 'slotted', 'amb'); $('#stageBack').classList.remove('on'); $('#amb').classList.remove('on');
     if (this.kind !== 'live') { this.kind = 'live'; this.item = null; this.prog = null; }
     if (Nav.top() && Nav.top().el === $('#osd')) OSD.close();
+    this.syncClasses();
   },
   unmute() { this.eng.setMuted(false); $('#mutedTip').classList.remove('on'); },
   zap(d) {
@@ -2073,7 +2093,7 @@ const Stage = {
     if (this.kind === 'live') { if (d < 0 || v.paused) { try { v.currentTime = clamp(v.currentTime + d, v.seekable.length ? v.seekable.start(0) : 0, v.seekable.length ? v.seekable.end(v.seekable.length - 1) : v.currentTime); } catch { } } }
   },
   togglePause() { const p = !this.v.paused; this.eng.pause(p); OSD.render(); OSD.show(false, true); toast(p ? 'Paused' : 'Playing', { icon: p ? 'pause' : 'play', ms: 1200 }); },
-  setFit(f) { this.fit = f; this.el.classList.remove('fit-fill', 'fit-stretch', 'fit-zoom'); if (f !== 'contain') this.el.classList.add('fit-' + f); if (this.native) Android.call('nativeSetFit', f); },
+  setFit(f) { this.fit = f; this.el.classList.remove('fit-fill', 'fit-stretch', 'fit-zoom'); if (f !== 'contain') this.el.classList.add('fit-' + f); if (this.native && this.mode === 'full') Android.call('nativeSetFit', f); },
   position() {
     const v = this.v;
     if (this.kind === 'vod' || (this.kind === 'catchup' && D.pl.type === 'demo')) return { cur: v.currentTime || 0, dur: isFinite(v.duration) ? v.duration : 0 };
@@ -2410,7 +2430,16 @@ Views.home = {
   el: $('#v-home'),
   slot() { return S.homePreview && this.heroCh ? $('#homeSlot') : null; },
   entry() { return $('#v-home [data-entry]') || $('#v-home .btn'); },
-  show() { this.render(); },
+  sig() {
+    if (!D.pl) return 'none';
+    const pid = D.pl.id;
+    return [pid, D.ver, ST.last[pid], (ST.rec[pid] || []).slice(0, 8).join(), (ST.fav[pid] || []).length, ST.rem.length, Object.keys(ST.resume).length, D.movies ? D.movies.length : -1, D.series ? D.series.length : -1, pinUnlocked, JSON.stringify(ST.hidden[pid] || {}), S.homePreview, Math.floor(Date.now() / 6e4)].join('|');
+  },
+  show() {
+    const sg = this.sig();
+    if (sg === this._sig && this.el.children.length) { const ch = this.heroCh; if (ch && S.homePreview && !(Stage.ch && Stage.ch.k === ch.k && Stage.eng.src && Stage.kind === 'live')) setTimeout(() => { if (View.cur === this && Stage.mode !== 'full') Stage.playChannel(ch, { slot: $('#homeSlot') }); }, 250); return; }
+    this._sig = sg; this.render();
+  },
   heroChannel() {
     const pid = D.pl.id; const ok = c => c && !isLockedG(c.group) && !isHidden(c.group);
     const last = D.byKey.get(ST.last[pid]); if (ok(last)) return last;
@@ -2493,8 +2522,11 @@ Views.live = {
   },
   slot() { return S.preview && D.pl ? this.slotEl : null; },
   entry() { return this.list && this.list.length ? this.vs.entry() : $('.gi', this.gEl) || $('[data-entry]', this.emptyEl); },
-  show() {
+  sig() { const pid = D.pl && D.pl.id; return pid ? [pid, D.ver, (ST.fav[pid] || []).length, (ST.rec[pid] || []).length, JSON.stringify(ST.hidden[pid] || {}), JSON.stringify(ST.locked[pid] || {}), pinUnlocked, S.chNumbers].join('|') : 'none'; },
+  show(o) {
     const has = D.pl && D.channels.length;
+    if (has && this.list && !(o && o.refresh) && this.sig() === this._sig) { this.vs.refresh(); return; }
+    this._sig = this.sig();
     [this.gEl, this.chans, this.pv].forEach(e => e.classList.toggle('hide', !has)); this.emptyEl.classList.toggle('hide', !!has);
     if (!has) { this.emptyEl.innerHTML = ''; this.emptyEl.append(D.pl ? emptyState('tv', 'No live channels', 'This playlist only has movies and series.', [['film', 'Browse movies', () => View.show('movies')]]) : noPlaylist()); return; }
     this.renderGroups();
@@ -2569,7 +2601,9 @@ Views.guide = {
     const has = D.pl && D.channels.length;
     [this.det.parentElement, this.bar, this.grid].forEach(e => e.classList.toggle('hide', !has)); this.emptyEl.classList.toggle('hide', !!has);
     if (!has) { this.emptyEl.innerHTML = ''; this.emptyEl.append(D.pl ? emptyState('guide', 'No live channels', 'This playlist has no live TV.') : noPlaylist()); return; }
-    this.build(!!(o && o.refresh) && this.list);
+    const sg = [D.pl.id, D.ver, this.gk, S.guideDays, S.chNumbers, Math.floor(Date.now() / 18e5), pinUnlocked].join('|');
+    if (this.list && sg === this._sig && !(o && o.refresh) && !this.focusCh) { this.markRows(); this.render(); return; }
+    this.build(!!this.list && this._sig && this._sig.split('|')[0] === D.pl.id && this._sig.split('|')[2] === this.gk); this._sig = sg;
   },
   entry() { if (!this.list || !this.list.length) return $('[data-entry]', this.emptyEl); this.render(); const row = this.rows.get(this.fr); return (row && row.querySelector(`.gp[data-s="${this.fs}"]`)) || $('.gp', this.grid); },
   measure() {
@@ -2582,7 +2616,7 @@ Views.guide = {
   viewT0() { return this.t0 + this.grid.scrollLeft / this.ppm * 6e4; },
   viewT1() { return this.t0 + (this.grid.scrollLeft + this.grid.clientWidth - this.chw) / this.ppm * 6e4; },
   build(keep) {
-    const g = this.grid; const st = keep ? { l: g.scrollLeft, t: g.scrollTop, fr: this.fr, fs: this.fs, ft: this.ft } : null;
+    const g = this.grid; const st = keep ? { l: g.scrollLeft, t: g.scrollTop, fr: this.fr, fs: this.fs, ft: this.ft, t0: this.t0, ppm: this.ppm } : null;
     this.list = channelsOf(this.gk); if (!this.list.length && this.gk !== '__all') { this.gk = '__all'; this.list = channelsOf('__all'); }
     const now = Date.now(); const ma = maxArchive();
     this.t0 = Math.floor((now - (ma ? ma * 864e5 : 3 * 36e5)) / 18e5) * 18e5; this.t1 = now + S.guideDays * 864e5;
@@ -2597,7 +2631,7 @@ Views.guide = {
     for (let d = Math.max(d0, -7); d < S.guideDays; d++) { const t = dayStart(now) + d * 864e5; this.dayBox.append(h('button', { class: 'chip', onclick: () => this.jump(d === 0 ? now : t + (now - dayStart(now))) }, dayLabel(t))); }
     this.groupBtn.innerHTML = ic('list') + `<span>${esc(groupKeyName(this.gk))}</span>`;
     this.epgStatus();
-    if (st) { g.scrollLeft = st.l; g.scrollTop = st.t; this.fr = Math.min(st.fr, this.list.length - 1); this.fs = st.fs; this.ft = st.ft; }
+    if (st) { g.scrollLeft = Math.max(0, st.l + (st.t0 && st.ppm === this.ppm ? (st.t0 - this.t0) / 6e4 * this.ppm : 0)); g.scrollTop = st.t; this.fr = Math.min(st.fr, this.list.length - 1); this.fs = st.fs; this.ft = st.ft; }
     else {
       const fc = this.focusCh || Stage.ch; this.focusCh = null;
       let r = fc ? this.list.findIndex(c => c.k === fc.k) : -1; if (r < 0) r = 0;
@@ -2845,6 +2879,10 @@ function makeVodView(kind) {
       let list;
       try { list = await ensureVod(kind); } catch (e) { box(false); this.emptyEl.innerHTML = ''; this.emptyEl.append(emptyState('info', `Couldn't load ${kind}`, e.message, [['refresh', 'Try again', () => this.show()]])); if (View.cur === this) focusEntry(); return; }
       if (View.cur !== this) return;
+      if (list !== this._list) { this._list = list; this._lid = (this._lid || 0) + 1; }
+      const sg = [D.pl.id, this._lid, (ST.vfav[D.pl.id] || []).length, Object.keys(ST.resume).length].join('|');
+      if (this.items && sg === this._sig) { box(true); this.vs.refresh(); return; }
+      this._sig = sg;
       if (!list.length) { box(false); this.emptyEl.innerHTML = ''; this.emptyEl.append(emptyState(isM ? 'film' : 'series', `No ${kind} here`, D.pl.type === 'xtream' ? `Your provider doesn't list any ${kind}.` : `This playlist doesn't include ${kind}. Xtream Codes logins usually do.`)); return; }
       box(true); this.renderCats();
       this.setCat(this.cat && this.cats.includes(this.cat) ? this.cat : this.cats[0], true);
@@ -3053,7 +3091,7 @@ Views.settings = {
       tog('homePreview', 'Live preview on Home', null, () => S.homePreview, v => { S.homePreview = v; });
       tog('autoFull', 'Start with my last channel', 'Opens straight into full screen when the app starts', () => S.autoFull, v => { S.autoFull = v; });
       choice('zap', 'Up / Down in full screen', null, [['normal', 'Change channel (▼ next)'], ['invert', 'Change channel (▲ next)'], ['off', 'Show info instead']]);
-      if (Env.android) tog('nativePlayer', 'Use the Android player in full screen', 'Plays Dolby Digital sound and more video formats. Turn off only if a channel works better without it.', () => S.nativePlayer !== false, v => { S.nativePlayer = v; });
+      if (Env.android) tog('nativePlayer', 'Use the Android player', 'For previews and full screen. Plays Dolby Digital sound and more video formats. Turn off only if a channel works better without it.', () => S.nativePlayer !== false, v => { S.nativePlayer = v; });
       grp('Streaming');
       choice('buffer', 'Buffer', 'A bigger buffer helps with a weak connection but zaps slower', [['low', 'Small (fast zapping)'], ['normal', 'Normal'], ['large', 'Large (fewer stalls)']]);
       choice('fmt', 'Xtream stream format', 'Try MPEG-TS if channels fail to start', [['auto', 'Automatic (HLS, then TS)'], ['hls', 'HLS (.m3u8)'], ['ts', 'MPEG-TS (.ts)']]);

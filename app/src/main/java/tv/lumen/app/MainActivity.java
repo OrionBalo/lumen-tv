@@ -216,6 +216,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void nativeLayout(final int x, final int y, final int w, final int h) {
+            onUi(new Runnable() { @Override public void run() { nativePlayer.layout(x, y, w, h); } });
+        }
+
+        @JavascriptInterface
         public void nativeSetFit(final String mode) {
             onUi(new Runnable() { @Override public void run() { nativePlayer.setFit(mode); } });
         }
